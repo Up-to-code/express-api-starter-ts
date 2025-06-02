@@ -15,17 +15,18 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
+  id            String     @id @default(cuid())
   name          String
-  email         String    @unique
+  email         String     @unique
   emailVerified DateTime?
   password      String
   image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  role          Role      @default(user)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  role          Role       @default(user)
   sessions      Session[]
   accounts      Account[]
+  properties    Property[] // Properties managed by this user/agent
 }
 
 model Account {
@@ -70,33 +71,62 @@ enum Role {
 }
 
 model Client {
-  id          String     @id @default(cuid())
-  name        String
-  phone       String     @unique
-  lastActive  DateTime   @default(now())
-  lastMessage String
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  messages    Message[]
-  type        String     @default("Client")
-  campaigns   Campaign[] @relation("CampaignToClient")
+  id           String        @id @default(cuid())
+  name         String
+  phone        String        @unique
+  email        String?
+  lastActive   DateTime      @default(now())
+  lastMessage  String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  messages     Message[]
+  type         String        @default("Client")
+  campaigns    Campaign[]    @relation("CampaignToClient")
+  appointments Appointment[]
 }
 
 model Message {
-  id        String   @id @default(cuid())
-  text      String
-  clientId  String
-  isBot     Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  client    Client   @relation(fields: [clientId], references: [id])
+  id                 String    @id @default(cuid())
+  text               String
+  clientId           String
+  isBot              Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  client             Client    @relation(fields: [clientId], references: [id])
+
+  // WhatsApp message tracking fields
+  whatsappMessageId  String?   // WhatsApp message ID for tracking
+  status             String?   // sent, delivered, read, failed
+  sentAt             DateTime? // When message was sent
+  deliveredAt        DateTime? // When message was delivered
+  readAt             DateTime? // When message was read
+  failedAt           DateTime? // When message failed
+  lastStatusUpdate   DateTime? // Last status update timestamp
+  isAutomated        Boolean   @default(false) // Whether this is an automated response
+  responseSource     String?   // Source of response (QA Database, AI Agent, etc.)
+  errorDetails       String?   // Error details if message failed
+
+  @@index([whatsappMessageId])
+  @@index([status])
+  @@index([isBot])
+  @@index([sentAt])
 }
 
 model QAPair {
-  id       String @id @default(cuid())
-  question String
-  answer   String
-  category String
+  id          String   @id @default(cuid())
+  question    String
+  answer      String
+  category    String   @default("general")
+  language    String   @default("en") // "en", "ar", or "both"
+  isActive    Boolean  @default(true)
+  tags        String[] // Array of tags for better categorization
+  priority    Int      @default(0) // Higher priority questions appear first
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([language])
+  @@index([isActive])
 }
 
 // Define the Campaign model based on your initialCampaigns data structure
@@ -127,4 +157,105 @@ model Template {
 
   // Composite index for name and language to ensure uniqueness per language
   @@unique([name, language])
+}
+
+// Define the Appointment model for scheduling client appointments
+model Appointment {
+  id          String            @id @default(cuid())
+  title       String
+  description String?
+  scheduledAt DateTime
+  location    String?
+  type        String            @default("meeting") // "viewing", "meeting", "signing", "valuation", "other"
+  status      AppointmentStatus @default(SCHEDULED)
+  clientId    String
+  client      Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  propertyId  String?           // Optional property reference for property viewings
+  property    Property?         @relation("PropertyAppointments", fields: [propertyId], references: [id])
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// Define the Property model for real estate properties
+model Property {
+  id              String          @id @default(cuid())
+  title           String
+  titleAr         String?         // Arabic title
+  description     String
+  descriptionAr   String?         // Arabic description
+  price           Float
+  currency        String          @default("USD")
+  type            PropertyType
+  status          PropertyStatus  @default(AVAILABLE)
+  bedrooms        Int?
+  bathrooms       Int?
+  area            Float?          // Area in square meters
+  location        String
+  locationAr      String?         // Arabic location
+  address         String
+  addressAr       String?         // Arabic address
+  city            String
+  cityAr          String?         // Arabic city
+  country         String          @default("UAE")
+  countryAr       String?         // Arabic country
+  latitude        Float?
+  longitude       Float?
+  images          String[]        // Array of image URLs from UploadThing
+  features        String[]        // Array of property features
+  featuresAr      String[]        // Array of Arabic property features
+  amenities       String[]        // Array of amenities
+  amenitiesAr     String[]        // Array of Arabic amenities
+  yearBuilt       Int?
+  parking         Int?            // Number of parking spaces
+  furnished       Boolean         @default(false)
+  petFriendly     Boolean         @default(false)
+  utilities       String?         // Utilities included
+  utilitiesAr     String?         // Arabic utilities
+  contactInfo     String?         // Contact information
+  agentId         String?         // Reference to agent/user
+  isActive        Boolean         @default(true)
+  isFeatured      Boolean         @default(false)
+  viewCount       Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  // Relations
+  agent           User?           @relation(fields: [agentId], references: [id])
+  appointments    Appointment[]   @relation("PropertyAppointments")
+
+  @@index([type])
+  @@index([status])
+  @@index([city])
+  @@index([price])
+  @@index([isActive])
+  @@index([isFeatured])
+}
+
+enum PropertyType {
+  APARTMENT
+  VILLA
+  TOWNHOUSE
+  PENTHOUSE
+  STUDIO
+  OFFICE
+  SHOP
+  WAREHOUSE
+  LAND
+  BUILDING
+}
+
+enum PropertyStatus {
+  AVAILABLE
+  SOLD
+  RENTED
+  RESERVED
+  OFF_MARKET
 }

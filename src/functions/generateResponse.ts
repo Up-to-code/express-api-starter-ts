@@ -2,9 +2,10 @@ import { logWithTimestamp } from '../utils/logger';
 import findOrCreateClient from './findOrCreateClient';
 import updateClientActivity from './updateClientActivity';
 import saveMessage from './saveMessage';
-import findRelevantQAPairs from './findRelevantQAPairs';
+import findRelevantQAPairs, { QAPairWithSimilarity } from './findRelevantQAPairs';
 import { detectLanguage } from '../utils/helpers';
 import { getDefaultResponse } from './getDefaultResponse';
+import { generateAIResponse } from './ai-agent/AIResponseGenerator';
 
 /**
  * Generates a response to a WhatsApp message
@@ -41,22 +42,82 @@ async function generateResponse(message: string, from: string, senderName: strin
     await saveMessage(message, client.id, false);
     await updateClientActivity(client.id, message);
 
-    // Find relevant QA pairs
-    const relevantQAs = await findRelevantQAPairs(message);
+    // Find relevant QA pairs with similarity scores
+    const relevantQAs: QAPairWithSimilarity[] = await findRelevantQAPairs(message);
 
     // Determine language and generate response
     const language = detectLanguage(message);
     let response = '';
+    let responseSource = '';
 
     if (relevantQAs.length > 0) {
-      // Use the first matching QA
-      response = relevantQAs[0].answer;
-      logWithTimestamp(`Found matching QA: ${relevantQAs[0].question}`, 'info');
+      const bestMatch = relevantQAs[0];
+      const similarityThreshold = 90; // 90% similarity threshold
+
+      if (bestMatch.similarity >= similarityThreshold) {
+        // High similarity match - use QA pair response
+        response = bestMatch.answer;
+        responseSource = `QA Database (${bestMatch.similarity.toFixed(1)}% match)`;
+        logWithTimestamp(
+          `High similarity match found: "${bestMatch.question}" (${bestMatch.similarity.toFixed(1)}%)`,
+          'info'
+        );
+      } else {
+        // Low similarity - use AI agent for intelligent response
+        logWithTimestamp(
+          `Best QA match only ${bestMatch.similarity.toFixed(1)}% similar. Using AI agent instead.`,
+          'info'
+        );
+
+        try {
+          // Pass client phone number to AI agent for enhanced property search with WhatsApp images
+          const aiResponse = await generateAIResponse(message, language, from);
+          response = aiResponse.response;
+          responseSource = `AI Agent (confidence: ${(aiResponse.confidence * 100).toFixed(1)}%)`;
+
+          // Log enhanced property search results
+          if (aiResponse.source === 'enhanced_property_search' && aiResponse.propertySearchResult) {
+            logWithTimestamp(
+              `Enhanced property search completed: ${aiResponse.propertySearchResult.total} properties found`,
+              'success'
+            );
+          }
+
+          // Add context about available QA pairs if similarity is decent (50-89%)
+          if (bestMatch.similarity >= 50) {
+            response += `\n\n💡 *Related topic*: ${bestMatch.question}`;
+          }
+        } catch (aiError: any) {
+          logWithTimestamp(`AI Agent failed: ${aiError.message}. Falling back to QA pair.`, 'error');
+          response = bestMatch.answer;
+          responseSource = `QA Fallback (${bestMatch.similarity.toFixed(1)}% match)`;
+        }
+      }
     } else {
-      // Use default response
-      response = getDefaultResponse(message, language);
-      logWithTimestamp('No matching QA found, using default response', 'info');
+      // No QA pairs found - use AI agent
+      logWithTimestamp('No relevant QA pairs found. Using AI agent for response.', 'info');
+
+      try {
+        // Pass client phone number to AI agent for enhanced property search with WhatsApp images
+        const aiResponse = await generateAIResponse(message, language, from);
+        response = aiResponse.response;
+        responseSource = `AI Agent (confidence: ${(aiResponse.confidence * 100).toFixed(1)}%)`;
+
+        // Log enhanced property search results
+        if (aiResponse.source === 'enhanced_property_search' && aiResponse.propertySearchResult) {
+          logWithTimestamp(
+            `Enhanced property search completed: ${aiResponse.propertySearchResult.total} properties found`,
+            'success'
+          );
+        }
+      } catch (aiError: any) {
+        logWithTimestamp(`AI Agent failed: ${aiError.message}. Using default response.`, 'error');
+        response = getDefaultResponse(message, language);
+        responseSource = 'Default Response';
+      }
     }
+
+    logWithTimestamp(`Response generated from: ${responseSource}`, 'info');
 
     // Save bot response
     await saveMessage(response, client.id, true);

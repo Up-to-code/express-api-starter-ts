@@ -178,21 +178,30 @@ router.post('/send_bay', async (req, res) => {
 // Get WhatsApp templates for campaign creation
 router.get('/templates', async (req, res) => {
   try {
-    const { language = 'en' } = req.query;
+    const { language } = req.query;
+    console.log(`Fetching templates for language: ${language || 'all'}`);
 
-    // Validate language parameter
-    const validLanguage = (language === 'ar' || language === 'en') ? language : 'en';
-    console.log(`Fetching templates for language: ${validLanguage}`);
+    let whereClause = {};
+
+    // Only filter by language if explicitly specified (not 'all' and not undefined)
+    if (language && language !== 'all') {
+      const validLanguage = (language === 'ar' || language === 'en') ? language : 'en';
+      whereClause = { language: validLanguage as string };
+      console.log(`Filtering by language: ${validLanguage}`);
+    } else {
+      console.log('Fetching templates from ALL languages');
+    }
 
     // Check if we have templates in the database
     const dbTemplates = await prisma.template.findMany({
-      where: {
-        language: validLanguage as string
-      },
-      orderBy: {
-        createdAt: 'desc'
-      }
+      where: whereClause,
+      orderBy: [
+        { language: 'asc' }, // Sort by language first (ar comes before en)
+        { createdAt: 'desc' }
+      ]
     });
+
+    console.log(`Found ${dbTemplates.length} templates in database`);
 
     // If we have templates in the database, return those
     if (dbTemplates.length > 0) {
@@ -200,58 +209,84 @@ router.get('/templates', async (req, res) => {
     }
 
     // Otherwise, return mock templates
-    const templates = [
+    const mockTemplatesEn = [
       {
-        id: 'hello_world',
-        name: validLanguage === 'ar' ? 'مرحبا بالعالم' : 'Hello World',
-        content: validLanguage === 'ar' ? 'مرحبًا، {{1}}! مرحبًا بك في خدمتنا.' : 'Hello, {{1}}! Welcome to our service.',
+        id: 'hello_world_en',
+        name: 'Hello World',
+        content: 'Hello, {{1}}! Welcome to our service.',
         category: 'greeting',
         variables: ['name'],
-        language: validLanguage
+        language: 'en',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       },
       {
-        id: 'appointment_reminder',
-        name: validLanguage === 'ar' ? 'تذكير بالموعد' : 'Appointment Reminder',
-        content: validLanguage === 'ar'
-          ? 'مرحبًا {{1}}، هذا تذكير بموعدك في {{2}} الساعة {{3}}.'
-          : 'Hi {{1}}, this is a reminder about your appointment on {{2}} at {{3}}.',
+        id: 'appointment_reminder_en',
+        name: 'Appointment Reminder',
+        content: 'Hi {{1}}, this is a reminder about your appointment on {{2}} at {{3}}.',
         category: 'reminder',
         variables: ['name', 'date', 'time'],
-        language: validLanguage
+        language: 'en',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       },
       {
-        id: 'property_update',
-        name: validLanguage === 'ar' ? 'تحديث العقار' : 'Property Update',
-        content: validLanguage === 'ar'
-          ? 'مرحبًا {{1}}، هناك تحديث جديد حول العقار {{2}}: {{3}}'
-          : 'Hello {{1}}, there is a new update about property {{2}}: {{3}}',
-        category: 'update',
-        variables: ['name', 'property_id', 'update_details'],
-        language: validLanguage
-      },
-      {
-        id: 'payment_confirmation',
-        name: validLanguage === 'ar' ? 'تأكيد الدفع' : 'Payment Confirmation',
-        content: validLanguage === 'ar'
-          ? 'شكرًا لك، {{1}}! تم استلام دفعتك بقيمة {{2}}.'
-          : 'Thank you, {{1}}! Your payment of {{2}} has been received.',
+        id: 'payment_confirmation_en',
+        name: 'Payment Confirmation',
+        content: 'Thank you, {{1}}! Your payment of {{2}} has been received.',
         category: 'payment',
         variables: ['name', 'amount'],
-        language: validLanguage
-      },
-      {
-        id: 'special_offer',
-        name: validLanguage === 'ar' ? 'عرض خاص' : 'Special Offer',
-        content: validLanguage === 'ar'
-          ? 'مرحبًا {{1}}! لدينا عرض خاص لك: {{2}}. صالح حتى {{3}}.'
-          : 'Hi {{1}}! We have a special offer for you: {{2}}. Valid until {{3}}.',
-        category: 'marketing',
-        variables: ['name', 'offer_details', 'expiry_date'],
-        language: validLanguage
+        language: 'en',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       }
     ];
 
-    return res.status(200).json(templates);
+    const mockTemplatesAr = [
+      {
+        id: 'hello_world_ar',
+        name: 'مرحبا بالعالم',
+        content: 'مرحبًا، {{1}}! مرحبًا بك في خدمتنا.',
+        category: 'greeting',
+        variables: ['name'],
+        language: 'ar',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: 'appointment_reminder_ar',
+        name: 'تذكير بالموعد',
+        content: 'مرحبًا {{1}}، هذا تذكير بموعدك في {{2}} الساعة {{3}}.',
+        category: 'reminder',
+        variables: ['name', 'date', 'time'],
+        language: 'ar',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      },
+      {
+        id: 'payment_confirmation_ar',
+        name: 'تأكيد الدفع',
+        content: 'شكرًا لك، {{1}}! تم استلام دفعتك بقيمة {{2}}.',
+        category: 'payment',
+        variables: ['name', 'amount'],
+        language: 'ar',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    ];
+
+    // Return appropriate mock templates based on language filter
+    if (!language || language === 'all') {
+      // Return all templates when no language specified or 'all' requested
+      console.log('Returning all mock templates (Arabic + English)');
+      return res.status(200).json([...mockTemplatesAr, ...mockTemplatesEn]); // Arabic first
+    } else if (language === 'ar') {
+      console.log('Returning Arabic mock templates only');
+      return res.status(200).json(mockTemplatesAr);
+    } else {
+      console.log('Returning English mock templates only');
+      return res.status(200).json(mockTemplatesEn);
+    }
   } catch (error) {
     console.error('Error getting templates:', error);
     return res.status(500).json({ error: 'Failed to get templates' });
@@ -319,8 +354,28 @@ router.post('/templates', async (req, res) => {
 
     if (existingTemplate) {
       console.log(`Template already exists: ${JSON.stringify(existingTemplate)}`);
-      return res.status(400).json({
-        error: `A template with the name "${trimmedName}" already exists for language "${language}"`
+
+      // Generate better suggestions
+      const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      const suggestions = [
+        `${trimmedName}_${date}`,
+        `${trimmedName}_v2`,
+        `${trimmedName}_new`,
+        `${trimmedName}_updated`,
+        `${trimmedName}_${language}_v2`
+      ];
+
+      return res.status(409).json({
+        error: language === 'ar'
+          ? `يوجد قالب بالاسم "${trimmedName}" بالفعل للغة العربية`
+          : `A template with the name "${trimmedName}" already exists for language "${language}"`,
+        code: 'TEMPLATE_NAME_EXISTS',
+        suggestions: suggestions,
+        existingTemplate: {
+          id: existingTemplate.id,
+          name: existingTemplate.name,
+          createdAt: existingTemplate.createdAt
+        }
       });
     }
 

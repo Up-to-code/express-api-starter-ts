@@ -87,12 +87,72 @@ router.post('/', async (req: Request, res: Response) => {
         }
       }
     } else if (value.statuses && Array.isArray(value.statuses)) {
+      // Import the MessageTrackingService
+      const { MessageTrackingService } = await import('../services/messageTrackingService');
+
       for (const status of value.statuses) {
         logWithTimestamp(
-          `Received status update: ${status.status} for message ${status.id}`,
+          `📊 Received status update: ${status.status} for message ${status.id} from ${status.recipient_id}`,
           'info',
         );
-        // Add any status processing logic here if needed
+
+        // Enhanced status processing with better error handling
+        try {
+          // Process status updates for read receipts and delivery tracking
+          await MessageTrackingService.updateMessageStatus(status);
+
+          // Enhanced logging with more details and emojis
+          switch (status.status) {
+            case 'sent':
+              logWithTimestamp(
+                `📤 Message ${status.id} sent successfully to ${status.recipient_id}`,
+                'info'
+              );
+              break;
+            case 'delivered':
+              logWithTimestamp(
+                `📬 Message ${status.id} delivered to ${status.recipient_id} at ${new Date(parseInt(status.timestamp) * 1000).toLocaleString('ar-SA')}`,
+                'info'
+              );
+              break;
+            case 'read':
+              logWithTimestamp(
+                `📖 Message ${status.id} read by ${status.recipient_id} at ${new Date(parseInt(status.timestamp) * 1000).toLocaleString('ar-SA')}`,
+                'success'
+              );
+
+              // Log read receipt achievement
+              logWithTimestamp(
+                `🎯 Read receipt achieved for ${status.recipient_id} - engagement confirmed!`,
+                'success'
+              );
+              break;
+            case 'failed':
+              logWithTimestamp(
+                `❌ Message ${status.id} failed to ${status.recipient_id}`,
+                'error'
+              );
+              if (status.errors && status.errors.length > 0) {
+                for (const error of status.errors) {
+                  logWithTimestamp(
+                    `💥 Error Code ${error.code}: ${error.title} - ${error.message}`,
+                    'error'
+                  );
+                }
+              }
+              break;
+            default:
+              logWithTimestamp(
+                `🔄 Unknown status '${status.status}' for message ${status.id}`,
+                'warning'
+              );
+          }
+        } catch (statusError: any) {
+          logWithTimestamp(
+            `💥 Failed to process status update for ${status.id}: ${statusError.message}`,
+            'error'
+          );
+        }
       }
     }
 

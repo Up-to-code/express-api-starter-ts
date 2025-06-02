@@ -71,8 +71,43 @@ router.post('/', async (req: Request, res: Response) => {
   // Log the request
   logWithTimestamp(`Sending WhatsApp message to ${to}`, 'info');
 
+  // Find client by phone number
+  const client = await prisma.client.findUnique({
+    where: {
+      phone: to
+    }
+  });
+
+  if (!client) {
+    return res.status(404).json({
+      success: false,
+      error: {
+        message: `Client not found with phone number: ${to}`,
+        code: 'CLIENT_NOT_FOUND',
+        statusCode: 404,
+      },
+    });
+  }
+
   // Send the message and update the client
-  const result = await messageService.sendMessageAndUpdateClient(to, text);
+  let result; // Initialize result variable outside try-catch block
+
+  try {
+    result = await messageService.sendMessageAndUpdateClient(to, text); // Assign result within try-catch block
+
+    /// save message to database
+    await prisma.message.create({
+      data: {
+        text,
+        clientId: client.id, // Add client reference
+        isBot: false,
+      },
+    });
+
+  } catch (error: any) {
+    logWithTimestamp(`Failed to send WhatsApp message: ${error.message}`, 'error');
+    return res.status(500).json({ error: error.message });
+  }
 
   // Return the result
   if (result.success) {
